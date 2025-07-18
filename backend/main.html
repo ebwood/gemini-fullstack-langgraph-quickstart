@@ -1,0 +1,155 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LangGraph Research Agent</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        line-height: 1.6;
+        padding: 20px;
+        max-width: 800px;
+        margin: auto;
+      }
+      #query-form {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      #query-input {
+        flex-grow: 1;
+        padding: 10px;
+        border-radius: 5px;
+        border: 1px solid #ccc;
+      }
+      #submit-btn {
+        padding: 10px 20px;
+        border: none;
+        background-color: #007bff;
+        color: white;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      #submit-btn:disabled {
+        background-color: #cccccc;
+      }
+      #status {
+        font-style: italic;
+        color: #555;
+        height: 2em;
+      }
+      #result {
+        white-space: pre-wrap;
+        background-color: #f9f9f9;
+        padding: 15px;
+        border-radius: 5px;
+        border: 1px solid #eee;
+      }
+      #sources {
+        margin-top: 20px;
+      }
+      #sources h3 {
+        margin-bottom: 10px;
+      }
+      #sources ul {
+        list-style: none;
+        padding: 0;
+      }
+      #sources li {
+        margin-bottom: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>LangGraph Pro-Search Agent</h1>
+    <form id="query-form">
+      <input
+        type="text"
+        id="query-input"
+        placeholder="Enter your research question..."
+        required
+      />
+      <button type="submit" id="submit-btn">Research</button>
+    </form>
+
+    <div id="status"></div>
+    <div id="result"></div>
+    <div id="sources"></div>
+
+    <script>
+      const form = document.getElementById("query-form");
+      const queryInput = document.getElementById("query-input");
+      const submitBtn = document.getElementById("submit-btn");
+      const statusDiv = document.getElementById("status");
+      const resultDiv = document.getElementById("result");
+      const sourcesDiv = document.getElementById("sources");
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const query = queryInput.value;
+        if (!query) return;
+
+        // Reset UI
+        submitBtn.disabled = true;
+        statusDiv.textContent = "Initializing...";
+        resultDiv.innerHTML = "";
+        sourcesDiv.innerHTML = "";
+
+        try {
+          const response = await fetch("http://127.0.0.1:8000/research", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: query }),
+          });
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            // Decode and process the SSE chunk
+            const chunk = decoder.decode(value);
+            const lines = chunk
+              .split("\n\n")
+              .filter((line) => line.trim() !== "");
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const dataStr = line.substring(6);
+                const data = JSON.parse(dataStr);
+
+                if (data.type === "status") {
+                  statusDiv.textContent = data.message;
+                } else if (data.type === "chunk") {
+                  statusDiv.textContent = "Generating final answer...";
+                  resultDiv.textContent += data.content;
+                } else if (data.type === "sources") {
+                  statusDiv.textContent = "Research complete.";
+                  let sourcesHTML = "<h3>Sources:</h3><ul>";
+                  data.sources.forEach((source) => {
+                    sourcesHTML += `<li><a href="${
+                      source.value
+                    }" target="_blank">${
+                      source.title || source.value
+                    }</a></li>`;
+                  });
+                  sourcesHTML += "</ul>";
+                  sourcesDiv.innerHTML = sourcesHTML;
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          statusDiv.textContent = "An error occurred.";
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
